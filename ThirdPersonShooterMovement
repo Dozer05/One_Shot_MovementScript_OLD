@@ -1,0 +1,175 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Cinemachine;
+
+public class ThirdPersonShooterMovement : MonoBehaviour
+{
+    enum MouseFunction : int
+    {
+        LeftPress = 0,
+        RightPress = 1,
+    }
+
+    enum CameraMode : int
+    {
+        ThirdPerson = 0,
+        ThirdPersonAim,
+    }
+    //Camera Code
+    public CinemachineVirtualCamera aimVirtualCamera;
+    public LayerMask aimColliderMask = new LayerMask();
+    public Transform vfxBlood;
+    public Transform vfxSparks;
+    private CameraMode _cameraMode = CameraMode.ThirdPerson;
+    //Movement Code
+    public CharacterController controller;
+    public Transform cam;
+
+    public float speed = 6;
+    public float gravity = -9.81f;
+    public float jumpHeight = 3;
+    Vector3 velocity;
+    bool isGrounded;
+
+    public Transform groundCheck;
+    public float groundDistance = 0.4f;
+    public LayerMask groundMask;
+
+    float turnSmoothVelocity;
+    public float turnSmoothTime = 0.1f;
+
+    // Update is called once per frame
+    void Update()
+    {
+        Cursor.lockState = CursorLockMode.Locked;
+
+        if (Input.GetMouseButton((int)MouseFunction.RightPress))
+            _cameraMode = CameraMode.ThirdPersonAim;
+        else
+            _cameraMode = CameraMode.ThirdPerson;
+
+        CameraUpdate();
+        MovementUpdate();
+    }
+    void MovementUpdate()
+    {
+        isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
+
+        if (isGrounded && velocity.y < 0)
+        {
+            velocity.y = -2f;
+        }
+
+        if (Input.GetButtonDown("Jump") && isGrounded)
+        {
+            velocity.y = Mathf.Sqrt(jumpHeight * -2 * gravity);
+        }
+        //gravity
+        velocity.y += gravity * Time.deltaTime;
+        controller.Move(velocity * Time.deltaTime);
+
+        //walk
+        float horizontal = Input.GetAxisRaw("Horizontal");
+        float vertical = Input.GetAxisRaw("Vertical");
+        Vector3 direction = new Vector3(horizontal, 0f, vertical).normalized;
+
+        switch (_cameraMode)
+        {
+            case CameraMode.ThirdPerson:
+                //camera logic
+                if (direction.magnitude >= 0.1f)
+                {
+                    float targetAngle = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg + cam.eulerAngles.y;
+                    float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetAngle, ref turnSmoothVelocity, turnSmoothTime);
+                    transform.rotation = Quaternion.Euler(0f, angle, 0f);
+
+                    Vector3 moveDir = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
+                    controller.Move(moveDir.normalized * speed * Time.deltaTime);
+                }
+                break;
+            case CameraMode.ThirdPersonAim:
+                // Get the camera's forward and right vectors, but ignore the Y-axis to keep movement on the horizontal plane.
+                Vector3 camForward = cam.forward;
+                Vector3 camRight = cam.right;
+
+                camForward.y = 0;
+                camRight.y = 0;
+                camForward.Normalize();
+                camRight.Normalize();
+
+                // Create a movement direction vector based on input and camera direction.
+                Vector3 moveDirAim = (camForward * vertical + camRight * horizontal).normalized;
+
+                if (moveDirAim.magnitude >= 0.1f)
+                {
+                    // Get the target angle for the player model to face.
+                    float targetAngle = Mathf.Atan2(moveDirAim.x, moveDirAim.z) * Mathf.Rad2Deg;
+
+                    // Smoothly rotate the player model to face the new direction.
+                    float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetAngle, ref turnSmoothVelocity, turnSmoothTime);
+                    transform.rotation = Quaternion.Euler(0f, angle, 0f);
+
+                    // Move the character in the direction of the input.
+                    controller.Move(moveDirAim * speed * Time.deltaTime);
+                }
+                break;
+        }
+    }
+
+    void CameraUpdate()
+    {
+        Vector3 mouseWorldPosition = Vector3.zero;
+        Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        Ray ray = Camera.main.ScreenPointToRay(screenCenterPoint);
+        Transform hitTransform = null;
+        if (Physics.Raycast(ray, out RaycastHit raycastHit, 999f, aimColliderMask))
+        {
+            transform.position = raycastHit.point;
+            mouseWorldPosition = raycastHit.point;
+            hitTransform = raycastHit.transform;
+        }
+
+        switch (_cameraMode)
+        {
+            case CameraMode.ThirdPersonAim:
+                aimVirtualCamera.gameObject.SetActive(true);
+
+                // Get the mouse movement delta from the input system.
+                float mouseX = Input.GetAxis("Mouse X");
+                float mouseY = Input.GetAxis("Mouse Y");
+
+                // Apply horizontal mouse movement to the player character's Y-axis rotation.
+                // This makes the character turn left/right with the mouse.
+                transform.Rotate(Vector3.up * mouseX * 100 * Time.deltaTime);
+
+                // Apply vertical mouse movement to a separate camera pivot or the camera itself.
+                // We avoid directly rotating the character on the X-axis to prevent it from tilting over.
+                // A separate camera pivot is often used for this.
+                // Example: cameraPivot.Rotate(Vector3.left * mouseY * mouseSensitivity * Time.deltaTime);
+
+                break;
+            case CameraMode.ThirdPerson:
+                //Update body position since we are aiming.
+                aimVirtualCamera.gameObject.SetActive(false);
+                break;
+        }
+        //This mouse input operation is fire.
+        if (Input.GetMouseButton((int)MouseFunction.LeftPress))
+        {
+            if (hitTransform != null)
+            {
+                //hit
+                if (hitTransform.GetComponent<targetScript>() != null)
+                {
+                    Instantiate(vfxBlood, transform.position, Quaternion.identity);
+                }
+                //miss
+                else
+                {
+                    Instantiate(vfxSparks, transform.position, Quaternion.identity);
+                }
+            }
+        }
+    }
+}
